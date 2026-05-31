@@ -13,7 +13,7 @@ register('symbol', {
     const sym = positionals[0];
     if (sym) return core.setSymbol({ symbol: sym });
     const state = await core.getState();
-    return { success: true, symbol: state.symbol, resolution: state.resolution };
+    return { success: true, symbol: state.symbol, timeframe: state.timeframe };
   },
 });
 
@@ -23,7 +23,7 @@ register('timeframe', {
     const tf = positionals[0];
     if (tf) return core.setTimeframe({ timeframe: tf });
     const state = await core.getState();
-    return { success: true, resolution: state.resolution, symbol: state.symbol };
+    return { success: true, timeframe: state.timeframe, symbol: state.symbol };
   },
 });
 

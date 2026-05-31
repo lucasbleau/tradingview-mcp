@@ -2,6 +2,7 @@
  * Core UI automation logic.
  */
 import { evaluate, evaluateAsync, getClient } from '../connection.js';
+import { waitForChartReady } from '../wait.js';
 
 export async function click({ by, value }) {
   const escaped = JSON.stringify(value);
@@ -156,8 +157,9 @@ export async function layoutSwitch({ name }) {
     })()
   `);
 
-  if (dismissed) await new Promise(r => setTimeout(r, 1000));
-  return { success: true, layout: result.name || name, layout_id: result.id, source: result.source, action: 'switched', unsaved_dialog_dismissed: dismissed };
+  if (dismissed) await new Promise(r => setTimeout(r, 500));
+  const ready = await waitForChartReady();
+  return { success: true, layout: result.name || name, layout_id: result.id, source: result.source, action: 'switched', unsaved_dialog_dismissed: dismissed, chart_ready: ready };
 }
 
 export async function keyboard({ key, modifiers }) {

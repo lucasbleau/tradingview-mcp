@@ -23,9 +23,14 @@ export async function create({ condition, price, message }) {
 
   const priceSet = await evaluate(`
     (function() {
-      var inputs = document.querySelectorAll('[class*="alert"] input[type="text"], [class*="alert"] input[type="number"]');
+      var dialog = document.querySelector('[role="dialog"]')
+        || document.querySelector('[data-name*="alert"]')
+        || document.querySelector('[class*="alert"]')
+        || document;
+      var inputs = dialog.querySelectorAll('input[type="text"], input[type="number"]');
       for (var i = 0; i < inputs.length; i++) {
-        var label = inputs[i].closest('[class*="row"]')?.querySelector('[class*="label"]');
+        var label = inputs[i].closest('[class*="row"], [class*="field"], [class*="item"]')
+          ?.querySelector('[class*="label"], label');
         if (label && /value|price/i.test(label.textContent)) {
           var nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
           nativeSet.call(inputs[i], ${safeString(String(price))});
@@ -47,7 +52,9 @@ export async function create({ condition, price, message }) {
   if (message) {
     await evaluate(`
       (function() {
-        var textarea = document.querySelector('[class*="alert"] textarea')
+        var textarea = document.querySelector('[role="dialog"] textarea')
+          || document.querySelector('[data-name*="alert"] textarea')
+          || document.querySelector('[class*="alert"] textarea')
           || document.querySelector('textarea[placeholder*="message"]');
         if (textarea) {
           var nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
