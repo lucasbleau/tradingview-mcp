@@ -43,15 +43,36 @@ if [ -z "$APP" ] || [ ! -f "$APP" ]; then
   exit 1
 fi
 
-# Kill any existing TradingView
-pkill -f "TradingView" 2>/dev/null
-sleep 1
+# If CDP already responding on the requested port, do nothing.
+if curl -s "http://localhost:$PORT/json/version" > /dev/null 2>&1; then
+  echo "CDP already responding on port $PORT — nothing to do."
+  curl -s "http://localhost:$PORT/json/version"
+  exit 0
+fi
+
+# SIGTERM is trapped by the app (single-instance lock survives), so launching
+# again would just forward to the running instance and the new process — with
+# the debug flag — would exit immediately. Use SIGKILL and poll.
+if pgrep -f "TradingView" > /dev/null 2>&1; then
+  echo "Stopping existing TradingView..."
+  pkill -9 -f "TradingView" 2>/dev/null
+  for i in $(seq 1 10); do
+    pgrep -f "TradingView" > /dev/null 2>&1 || break
+    sleep 1
+  done
+  if pgrep -f "TradingView" > /dev/null 2>&1; then
+    echo "Error: TradingView processes still alive after SIGKILL."
+    pgrep -lf "TradingView" | head -5
+    exit 1
+  fi
+fi
 
 echo "Found TradingView at: $APP"
 echo "Launching with --remote-debugging-port=$PORT ..."
-"$APP" --remote-debugging-port=$PORT &
+nohup "$APP" --remote-debugging-port=$PORT > /tmp/tradingview-cdp.log 2>&1 &
 TV_PID=$!
-echo "PID: $TV_PID"
+disown $TV_PID 2>/dev/null
+echo "PID: $TV_PID  (log: /tmp/tradingview-cdp.log)"
 
 # Wait for CDP to be ready
 echo "Waiting for CDP..."

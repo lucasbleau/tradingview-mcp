@@ -132,7 +132,38 @@ export async function getIndicator({ entity_id }) {
   return { success: true, entity_id, visible: data?.visible, inputs };
 }
 
+async function ensureStrategyPanel() {
+  const opened = await evaluate(`
+    (function() {
+      var el = document.querySelector('[data-name="backtesting"]') || document.querySelector('[class*="strategyReport"]');
+      var isOpen = !!(el && el.offsetParent !== null);
+      if (!isOpen) {
+        var bwb = window.TradingView && window.TradingView.bottomWidgetBar;
+        if (bwb && typeof bwb.showWidget === 'function') bwb.showWidget('backtesting');
+      }
+      return !isOpen;
+    })()
+  `);
+  if (opened) await new Promise(r => setTimeout(r, 2500));
+
+  // Try to expand the Strategy Tester date range to "All" — web TV defaults to 1-day (#181)
+  await evaluate(`
+    (function() {
+      var container = document.querySelector('[data-name="backtesting"]') || document.querySelector('[class*="strategyReport"]') || document;
+      var allBtn = container.querySelector('[data-value="all"], [title="All"], button[class*="all"]');
+      if (!allBtn) {
+        var btns = container.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) { if (/^all$/i.test(btns[i].textContent.trim())) { allBtn = btns[i]; break; } }
+      }
+      if (allBtn) allBtn.click();
+    })()
+  `);
+  if (opened) await new Promise(r => setTimeout(r, 1000));
+  return opened;
+}
+
 export async function getStrategyResults() {
+  const panelOpened = await ensureStrategyPanel();
   const results = await evaluate(`
     (function() {
       try {
@@ -144,6 +175,8 @@ export async function getStrategyResults() {
           if (s.metaInfo && s.metaInfo().is_price_study === false && (s.reportData || s.performance)) { strat = s; break; }
         }
         if (!strat) return {metrics: {}, source: 'internal_api', error: 'No strategy found on chart. Add a strategy indicator first.'};
+        var notComputed = strat._data && strat._data._end === 0;
+        if (notComputed) return {metrics: {}, source: 'internal_api', error: 'Strategy has not computed yet. The Strategy Tester panel was just opened — retry in a few seconds.'};
         var metrics = {};
         if (strat.reportData) {
           var rd = typeof strat.reportData === 'function' ? strat.reportData() : strat.reportData;
@@ -161,10 +194,11 @@ export async function getStrategyResults() {
       } catch(e) { return {metrics: {}, source: 'internal_api', error: e.message}; }
     })()
   `);
-  return { success: true, metric_count: Object.keys(results?.metrics || {}).length, source: results?.source, metrics: results?.metrics || {}, error: results?.error };
+  return { success: true, metric_count: Object.keys(results?.metrics || {}).length, source: results?.source, metrics: results?.metrics || {}, error: results?.error, panel_opened: panelOpened };
 }
 
 export async function getTrades({ max_trades } = {}) {
+  const panelOpened = await ensureStrategyPanel();
   const limit = Math.min(max_trades || 20, MAX_TRADES);
   const trades = await evaluate(`
     (function() {
@@ -177,13 +211,15 @@ export async function getTrades({ max_trades } = {}) {
           if (s.metaInfo && s.metaInfo().is_price_study === false && (s.ordersData || s.reportData)) { strat = s; break; }
         }
         if (!strat) return {trades: [], source: 'internal_api', error: 'No strategy found on chart.'};
+        var notComputed = strat._data && strat._data._end === 0;
+        if (notComputed) return {trades: [], source: 'internal_api', error: 'Strategy has not computed yet. The Strategy Tester panel was just opened — retry in a few seconds.'};
         var orders = null;
         if (strat.ordersData) { orders = typeof strat.ordersData === 'function' ? strat.ordersData() : strat.ordersData; if (orders && typeof orders.value === 'function') orders = orders.value(); }
         if (!orders || !Array.isArray(orders)) {
           if (strat._orders) orders = strat._orders;
           else if (strat.tradesData) { orders = typeof strat.tradesData === 'function' ? strat.tradesData() : strat.tradesData; if (orders && typeof orders.value === 'function') orders = orders.value(); }
         }
-        if (!orders || !Array.isArray(orders)) return {trades: [], source: 'internal_api', error: 'ordersData() returned non-array.'};
+        if (!orders || !Array.isArray(orders)) return {trades: [], source: 'internal_api', error: 'Strategy has not computed any trades yet. If the Strategy Tester panel was just opened, retry in a few seconds.'};
         var result = [];
         for (var t = 0; t < Math.min(orders.length, ${limit}); t++) {
           var o = orders[t];
@@ -198,7 +234,7 @@ export async function getTrades({ max_trades } = {}) {
       } catch(e) { return {trades: [], source: 'internal_api', error: e.message}; }
     })()
   `);
-  return { success: true, trade_count: trades?.trades?.length || 0, source: trades?.source, trades: trades?.trades || [], error: trades?.error };
+  return { success: true, trade_count: trades?.trades?.length || 0, source: trades?.source, trades: trades?.trades || [], error: trades?.error, panel_opened: panelOpened };
 }
 
 export async function getEquity() {

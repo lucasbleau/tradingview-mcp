@@ -60,7 +60,31 @@ export async function captureScreenshot({ region, filename, method } = {}) {
   const params = { format: 'png' };
   if (clip) params.clip = clip;
 
-  const { data } = await client.Page.captureScreenshot(params);
+  // Page.captureScreenshot hangs indefinitely on GPU-accelerated Electron (MSIX builds).
+  // Timeout after 10s and fall back to the TV native screenshot API.
+  let data;
+  try {
+    const result = await Promise.race([
+      client.Page.captureScreenshot(params),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('CDP_TIMEOUT')), 10000)),
+    ]);
+    data = result.data;
+  } catch (err) {
+    if (err.message === 'CDP_TIMEOUT') {
+      try {
+        const colPath = await getChartCollection();
+        await evaluate(`${colPath}.takeScreenshot()`);
+        return {
+          success: true, method: 'api',
+          note: 'Page.captureScreenshot timed out (GPU-accelerated Electron). Fell back to TradingView native screenshot.',
+        };
+      } catch {
+        throw new Error('capture_screenshot failed: CDP timed out and API fallback also failed. Try --disable-gpu in TradingView launch flags.');
+      }
+    }
+    throw err;
+  }
+
   writeFileSync(filePath, Buffer.from(data, 'base64'));
 
   return {
